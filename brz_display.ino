@@ -4,7 +4,7 @@
 //   0 psi outputs 0.5V, 75 psi outputs 2.5V, 150 psi outputs 4.5V
 //     pressure = (voltage - 0.461) / 4 * 1000; //in kPa
 
-#define VERSION "1.0"
+#define VERSION "1.1"
 
 #include <Arduino.h>
 #include <ESP32CAN.h>
@@ -45,7 +45,15 @@ const int interval = 500;          // interval at which do... (milliseconds)
 
 #include "ADS1X15.h"
 ADS1115 ADS(0x48);
-static float voltage_divider = 1.470213; //voltage divider 22.1/47
+// Resistors value in kOhm for the voltage divider.
+#define OIL_PRESSURE_R1 47
+#define OIL_PRESSURE_R2 22.16
+//static float voltage_divider = (22.16/47)+1;  //1.470213; //voltage divider 22.16/47
+// Characteristics of the oil pressure sensor.
+// Voltage in mV.
+#define OIL_PRESSURE_VL 0.5
+#define OIL_PRESSURE_VH 4.5
+#define OIL_PRESSURE_PMAX 1034.21359 //150psi in kilopascals
 
 #include "MedianFilterLib2.h"
 MedianFilter2<float> medianFilter2(5);
@@ -98,13 +106,13 @@ void setup() {
   CAN_filter_t p_filter;
   p_filter.FM = Single_Mode;
 
-  p_filter.ACR0 = 0x6C; //id 0x141+360 shifted left 5 bits
-  p_filter.ACR1 = 0x20;
+  p_filter.ACR0 = 0x6C; //id 0x140+360 shifted left 5 bits
+  p_filter.ACR1 = 0x00;
   p_filter.ACR2 = 0;
   p_filter.ACR3 = 0;
 
   p_filter.AMR0 = 0x44;
-  p_filter.AMR1 = 0x3F;
+  p_filter.AMR1 = 0x1F;
   p_filter.AMR2 = 0xFF;
   p_filter.AMR3 = 0xFF;
   ESP32Can.CANConfigFilter(&p_filter);
@@ -117,7 +125,7 @@ void setup() {
   ADS.setDataRate(6);  // fast
   ADS.setMode(0);      // continuous mode
   ADS.readADC(3);      // first read to trigger - A3 input
-  ADS.readADC(2);      // first read to trigger - A2 input, just now unused
+//  ADS.readADC(2);      // first read to trigger - A2 input, just now unused
   
   //tft display
   delay(2000); //wait for logo
@@ -149,22 +157,22 @@ void loop() {
   unsigned long currentMillis = millis();
   //ADC readout
   int16_t raw = ADS.readADC(3);
-  int16_t raw1 = ADS.readADC(2);
+//  int16_t raw1 = ADS.readADC(2);
   // Serial.println("raw");
   // Serial.println(ADS.toVoltage(raw), 4);
   // Serial.println("raw1");
   // Serial.println(ADS.toVoltage(raw1), 4);
   // Serial.println(String((float)voltage)+"V");
 
-  voltage = ADS.toVoltage(raw) * voltage_divider;  //resistor divider
-  if (voltage > 0.4) {
-    rawPressure = (voltage - 0.463) / 4 * 1000;   // pressure sensor 150PSI - 0 psi outputs 0.5V, 75 psi outputs 2.5V, 150 psi outputs 4.5V
+  voltage = ( ADS.toVoltage(raw) * (OIL_PRESSURE_R1+OIL_PRESSURE_R2) / OIL_PRESSURE_R1 ) * 0.997;  //resistor divider 0.997 calibration constant
+  if (voltage > OIL_PRESSURE_VL) {
+    rawPressure = (voltage - OIL_PRESSURE_VL) * OIL_PRESSURE_PMAX / (OIL_PRESSURE_VH - OIL_PRESSURE_VL);   // pressure sensor 150PSI - 0 psi outputs 0.5V, 75 psi outputs 2.5V, 150 psi outputs 4.5V
     pressure = medianFilter2.AddValue(rawPressure); //median filtering
   } else {
     pressure = 0;
     rawPressure = 0;
   }
-  Serial.println("Voltage:" + String((float)voltage, 3) + ",Pressure:" + String((float)pressure) + ",RawPressure:" + String((float)rawPressure) + ",OilTemperature:" + String((int)oilTemperature) );
+  Serial.println("Voltage:" + String((float)voltage) + ",Pressure:" + String((float)pressure) + ",RawPressure:" + String((float)rawPressure) + ",OilTemperature:" + String((int)oilTemperature) );
   //ADC readout END
 
   // CAN Receive next CAN frame from queue
@@ -178,8 +186,10 @@ void loop() {
       Serial.print(" - coolant temp is ");
       Serial.println(coolantTemperature);
     }
-    if (rx_frame.MsgID == 0x141) {
-      rpm = ((rx_frame.data.u8[5] & 0x0F) << 8) | rx_frame.data.u8[4];
+    if (rx_frame.MsgID == 0x140) {
+//      rpm = ((rx_frame.data.u8[5] & 0x0F) << 8) | rx_frame.data.u8[4];
+      rpm = ((rx_frame.data.u8[3] & 0x3F) << 8) | rx_frame.data.u8[2];
+
       Serial.print(" - rpm is ");
       Serial.println(rpm);
     }
