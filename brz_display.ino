@@ -44,7 +44,7 @@ const int interval = 500;          // interval at which do... (milliseconds)
 #define I2C_SCL 17
 
 #include "ADS1X15.h"
-ADS1115 ADS(0x48);
+ADS1115 ADS(0x48, &Wire);
 // Resistors value in kOhm for the voltage divider.
 #define OIL_PRESSURE_R1 47
 #define OIL_PRESSURE_R2 22.16
@@ -120,7 +120,8 @@ void setup() {
   ESP32Can.CANInit();
 
   //ADC setup
-  ADS.begin(I2C_SDA, I2C_SCL);
+  Wire.begin(I2C_SDA, I2C_SCL);
+  ADS.begin();
   ADS.setGain(0);      // 6.144 volt
   ADS.setDataRate(6);  // fast
   ADS.setMode(0);      // continuous mode
