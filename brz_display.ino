@@ -1,10 +1,11 @@
 //BRZ display - pressure and CANBus receiver
-// Mini D1 ESP32
+//  ESP32-D0WDQ6
 //  pressure sensor 150PSI
 //   0 psi outputs 0.5V, 75 psi outputs 2.5V, 150 psi outputs 4.5V
 //     pressure = (voltage - 0.461) / 4 * 1000; //in kPa
 
-#define VERSION "1.1"
+
+#define VERSION "1.2"
 
 #include <Arduino.h>
 #include <ESP32CAN.h>
@@ -37,7 +38,7 @@ int curent = 0;
 float rawPressure = 0;
 int pressure = 0;
 float voltage = 0;
-const int interval = 500;          // interval at which do... (milliseconds)
+const int interval = 500;     // interval for slow loop (milliseconds)
 
 //ADC
 #define I2C_SDA 16
@@ -62,11 +63,12 @@ MedianFilter2<float> medianFilter2(5);
 
 #include <TFT_eSPI.h>       // Hardware-specific library
 #include "subaru_logo.h"
+#include "warning_icon2.h"
 
 TFT_eSPI tft = TFT_eSPI();  // Invoke custom library
-TFT_eSprite sprite = TFT_eSprite(&tft); //pressure display
-TFT_eSprite sprite2 = TFT_eSprite(&tft); //graph
-TFT_eSprite sprite3 = TFT_eSprite(&tft); //rpm
+TFT_eSprite sprite = TFT_eSprite(&tft); //pressure display  310x50
+TFT_eSprite sprite2 = TFT_eSprite(&tft); //graph 165x85
+TFT_eSprite sprite3 = TFT_eSprite(&tft); //rpm 140x50
 
 //tft display
 #define color1 TFT_WHITE
@@ -84,16 +86,22 @@ TFT_eSprite sprite3 = TFT_eSprite(&tft); //rpm
 
 // setup =======================================
 void setup() {
+  // backlight pin setup
+  pinMode(TFT_BL, OUTPUT);
+  digitalWrite(TFT_BL, !TFT_BACKLIGHT_ON); // backlight off
+
   Serial.begin(115200);
   Serial.println(__FILE__);
   Serial.println("ESP32-BRZ display "VERSION);
-
+  
   //tft display init
   tft.init();
   tft.setRotation(1);
   tft.setSwapBytes(true);
   tft.fillScreen(TFT_BLACK);
-  tft.pushImage(26, 14, 268, 132, subaru_logo); //small logo
+//  tft.pushImage(26, 14, 268, 132, subaru_logo); //small logo
+
+
 
   // CAN Bus setup
   CAN_cfg.speed = CAN_SPEED_500KBPS;
@@ -122,15 +130,15 @@ void setup() {
   //ADC setup
   Wire.begin(I2C_SDA, I2C_SCL);
   ADS.begin();
-  ADS.setGain(0);      // 6.144 volt
-  ADS.setDataRate(6);  // fast
+  ADS.setGain(2);      //  0 = 6.144V, 2 = 2.048V
+  ADS.setDataRate(4);  // 128 SPS
   ADS.setMode(0);      // continuous mode
   ADS.readADC(3);      // first read to trigger - A3 input
 //  ADS.readADC(2);      // first read to trigger - A2 input, just now unused
   
   //tft display
-  delay(2000); //wait for logo
-  tft.fillScreen(TFT_BLACK);
+ // delay(2000); //wait for logo
+ //  tft.fillScreen(TFT_BLACK);
   tft.setTextDatum(4);
   tft.setTextColor(TFT_ORANGE, TFT_BLACK);
   tft.drawString(" OIL PRESSURE kPa", 70, 10, 2);
@@ -151,29 +159,25 @@ void setup() {
   sprite3.setTextDatum(4);
   sprite3.setTextColor(TFT_SILVER, color6);
 
+//  tft.pushImage(5, 74, 32, 32, warning_icon); //small logo
+  digitalWrite(TFT_BL, TFT_BACKLIGHT_ON); // backlight on
 }
 
 // main loop =======================================
 void loop() {
   unsigned long currentMillis = millis();
+
   //ADC readout
   int16_t raw = ADS.readADC(3);
-//  int16_t raw1 = ADS.readADC(2);
-  // Serial.println("raw");
-  // Serial.println(ADS.toVoltage(raw), 4);
-  // Serial.println("raw1");
-  // Serial.println(ADS.toVoltage(raw1), 4);
-  // Serial.println(String((float)voltage)+"V");
-
   voltage = ( ADS.toVoltage(raw) * (OIL_PRESSURE_R1+OIL_PRESSURE_R2) / OIL_PRESSURE_R1 ) * 0.997;  //resistor divider 0.997 calibration constant
+
   if (voltage > OIL_PRESSURE_VL) {
-    rawPressure = (voltage - OIL_PRESSURE_VL) * OIL_PRESSURE_PMAX / (OIL_PRESSURE_VH - OIL_PRESSURE_VL);   // pressure sensor 150PSI - 0 psi outputs 0.5V, 75 psi outputs 2.5V, 150 psi outputs 4.5V
-    pressure = medianFilter2.AddValue(rawPressure); //median filtering
+    rawPressure = (voltage - OIL_PRESSURE_VL) * OIL_PRESSURE_PMAX / (OIL_PRESSURE_VH - OIL_PRESSURE_VL);  // pressure sensor 150PSI - 0 psi outputs 0.5V, 75 psi outputs 2.5V, 150 psi outputs 4.5V
+    pressure = medianFilter2.AddValue(rawPressure);  //median filtering
   } else {
     pressure = 0;
     rawPressure = 0;
   }
-  Serial.println("Voltage:" + String((float)voltage) + ",Pressure:" + String((float)pressure) + ",RawPressure:" + String((float)rawPressure) + ",OilTemperature:" + String((int)oilTemperature) );
   //ADC readout END
 
   // CAN Receive next CAN frame from queue
@@ -182,20 +186,17 @@ void loop() {
     if (rx_frame.MsgID == 0x360) {
       oilTemperature = (int) rx_frame.data.u8[2] - 40;
       coolantTemperature = (int) rx_frame.data.u8[3] - 40;
-      Serial.print(" - oil temp is ");
-      Serial.print(oilTemperature);
-      Serial.print(" - coolant temp is ");
-      Serial.println(coolantTemperature);
     }
     if (rx_frame.MsgID == 0x140) {
-//      rpm = ((rx_frame.data.u8[5] & 0x0F) << 8) | rx_frame.data.u8[4];
       rpm = ((rx_frame.data.u8[3] & 0x3F) << 8) | rx_frame.data.u8[2];
-
-      Serial.print(" - rpm is ");
-      Serial.println(rpm);
     }
 
-  } //CAN receive END
+  } 
+  //CAN receive END
+  
+  //serial output
+  //  Serial.println("Voltage:" + String((float)voltage) + ",Pressure:" + String((float)pressure) + ",RawPressure:" + String((float)rawPressure) + ",OilTemperature:" + String((int)oilTemperature) );
+  Serial.println("RPM:" + String((float)rpm) + ",Pressure:" + String((float)pressure) + ",RawPressure:" + String((float)rawPressure) + ",OilTemperature:" + String((int)oilTemperature) );
 
   //// display loop fast (debug)
   tft.drawString("     ", 105, 82, 2);
@@ -249,8 +250,10 @@ void loop() {
       sprite2.drawLine(gx + (i * 8), gy - values[i] - 1 - calib, gx + ((i + 1) * 8), gy - values[i + 1] - 1 - calib, TFT_RED);
     }
 
-    sprite2.pushSprite(150, 75); //graph
+    sprite2.pushSprite(150, 75); 
+    //graph
 
-  } //display loop
+  } 
+  //display slow loop
 
 }
