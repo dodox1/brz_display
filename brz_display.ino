@@ -10,6 +10,7 @@
 #include <Arduino.h>
 #include <ESP32CAN.h>
 #include <CAN_config.h>
+#include "oil_pressure_predict.h" //calculated pressure value
 
 CAN_device_t CAN_cfg; // CAN Config
 CAN_frame_t rx_frame; //define frame instance
@@ -20,6 +21,7 @@ int oilTemperature = 255;
 int coolantTemperature = 255;
 int rpm = 0;
 static unsigned long last_time = 0;
+int predPressure = 0; //calculated pressure value
 
 //sprite - pressure value display
 int sx = 70; // center x
@@ -47,7 +49,7 @@ const int interval = 500;     // interval for slow loop (milliseconds)
 #include "ADS1X15.h"
 ADS1115 ADS(0x48, &Wire);
 // Resistors value in kOhm for the voltage divider.
-#define OIL_PRESSURE_R1 47
+#define OIL_PRESSURE_R1 47.0
 #define OIL_PRESSURE_R2 22.16
 //static float voltage_divider = (22.16/47)+1;  //1.470213; //voltage divider 22.16/47
 // Characteristics of the oil pressure sensor.
@@ -55,6 +57,12 @@ ADS1115 ADS(0x48, &Wire);
 #define OIL_PRESSURE_VL 0.5
 #define OIL_PRESSURE_VH 4.5
 #define OIL_PRESSURE_PMAX 1034.21359 //150psi in kilopascals
+
+#define MIN_PRESSURE_PERCENT 10  // 10 %
+#define ALARM_BLINK_INTERVAL 300   // ms, blink interval for alarm icon
+static bool alarmActive = false;
+static unsigned long alarmLastBlink = 0;
+static bool alarmIconVisible = false;
 
 #include "MedianFilterLib2.h"
 MedianFilter2<float> medianFilter2(5);
@@ -130,7 +138,7 @@ void setup() {
   //ADC setup
   Wire.begin(I2C_SDA, I2C_SCL);
   ADS.begin();
-  ADS.setGain(2);      //  0 = 6.144V, 2 = 2.048V
+  ADS.setGain(1);      //  0 = 6.144V, 2 = 2.048V
   ADS.setDataRate(4);  // 128 SPS
   ADS.setMode(0);      // continuous mode
   ADS.readADC(3);      // first read to trigger - A3 input
@@ -193,7 +201,10 @@ void loop() {
 
   } 
   //CAN receive END
-  
+
+  // oil pressure calculation
+  int predPressure = expectedOilPressure(rpm);
+
   //serial output
   //  Serial.println("Voltage:" + String((float)voltage) + ",Pressure:" + String((float)pressure) + ",RawPressure:" + String((float)rawPressure) + ",OilTemperature:" + String((int)oilTemperature) );
   Serial.println("RPM:" + String((float)rpm) + ",Pressure:" + String((float)pressure) + ",RawPressure:" + String((float)rawPressure) + ",OilTemperature:" + String((int)oilTemperature) );
@@ -201,7 +212,30 @@ void loop() {
   //// display loop fast (debug)
   tft.drawString("     ", 105, 82, 2);
   tft.drawString(String((float)voltage, 3), 105, 82, 2);
-
+  tft.drawString("     ", 37, 82, 2);
+  tft.drawString(String(predPressure), 37, 82, 2); //display calculated pressure
+  
+  // ALARM HANDLING LOGIC WITH BLINKING WARNING ICON (ONLY ICON)
+  if (pressure < predPressure * (100 - MIN_PRESSURE_PERCENT) / 100) {
+    alarmActive = true;
+    if (currentMillis - alarmLastBlink > ALARM_BLINK_INTERVAL) {
+      alarmLastBlink = currentMillis;
+      alarmIconVisible = !alarmIconVisible;
+      // Clear previous icon area
+      tft.fillRect(15, 74, 32, 32, TFT_BLACK);
+      if (alarmIconVisible) {
+        tft.pushImage(15, 74, 32, 32, warning_icon);
+      }
+    }
+  } else {
+    if (alarmActive) {
+      alarmActive = false;
+      alarmIconVisible = false;
+      tft.fillRect(15, 74, 32, 32, TFT_BLACK);
+    }
+  }
+  // ALARM end
+  
   //// display loop slow
   if (currentMillis - previousMillis >= interval) {
     previousMillis = currentMillis;
