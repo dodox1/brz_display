@@ -24,14 +24,14 @@ static unsigned long last_time = 0;
 int predPressure = 0; //calculated pressure value
 
 //sprite - pressure value display
-int sx = 70; // center x
-int sy = 30; // center y
+const int sx = 70; // center x
+const int sy = 30; // center y
 
 //Sprite 2 data graph
-int gw = 165; //graph width
-int gh = 85; //graph heigth
-int gx = 22; //graph x
-int gy = 84; // graph y
+const int gw = 165; //graph width
+const int gh = 85; //graph heigth
+const int gx = 22; //graph x
+const int gy = 84; // graph y
 int values[20] = {0};
 int values2[20] = {0};
 int calib = 0;
@@ -208,11 +208,12 @@ void loop() {
   //serial output
   //  Serial.println("Voltage:" + String((float)voltage) + ",Pressure:" + String((float)pressure) + ",RawPressure:" + String((float)rawPressure) + ",OilTemperature:" + String((int)oilTemperature) );
   Serial.println("RPM:" + String((float)rpm) + ",Pressure:" + String((float)pressure) + ",RawPressure:" + String((float)rawPressure) + ",OilTemperature:" + String((int)oilTemperature) );
+  Serial.println("predPressure:" + String(predPressure) );
 
   //// display loop fast (debug)
   tft.drawString("     ", 105, 82, 2);
   tft.drawString(String((float)voltage, 3), 105, 82, 2);
-  tft.drawString("     ", 37, 82, 2);
+  tft.drawString("     ", 40, 82, 2);
   tft.drawString(String(predPressure), 37, 82, 2); //display calculated pressure
   
   // ALARM HANDLING LOGIC WITH BLINKING WARNING ICON (ONLY ICON)

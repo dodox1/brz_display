@@ -1,7 +1,7 @@
 #pragma once
 
 // Piecewise linear interpolation for expected oil pressure [kPa] based on rpm
-// 13 points (based on real data 93–94°C)
+// points based on real data 93–94°C
 
 struct OilPressurePoint {
     int rpm;
@@ -9,7 +9,8 @@ struct OilPressurePoint {
 };
 
 static const OilPressurePoint oilPressureTable[] = {
-    { 600, 79 },
+    { 600, 70 },
+    { 800, 100 },
     { 900, 121 },
     { 1200, 184 },
     { 1500, 203 },
