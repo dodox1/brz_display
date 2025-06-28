@@ -22,7 +22,8 @@ int coolantTemperature = 255;
 int rpm = 0;
 static unsigned long last_time = 0;
 int predPressure = 0; //calculated pressure value
-
+int pressurePercent = 0;
+    
 //sprite - pressure value display
 const int sx = 70; // center x
 const int sy = 30; // center y
@@ -152,7 +153,7 @@ void setup() {
   tft.drawString(" OIL PRESSURE kPa", 70, 10, 2);
   tft.drawString("OIL C", 190, 10, 2);
   tft.drawString("COOLANT C", 273, 10, 2);
-  tft.drawString("RPM", 70, 100, 2);
+  tft.drawString("RPM", 105, 100, 2);
   tft.drawString("V ", 138, 82, 2);
   tft.setTextColor(TFT_SILVER, color6);
 
@@ -204,7 +205,12 @@ void loop() {
 
   // oil pressure calculation
   int predPressure = expectedOilPressure(rpm);
-
+  if (predPressure > 0) {
+    int pressurePercent = (pressure * 100) / predPressure;
+  } else {
+    int pressurePercent = 0;
+  }
+  
   //serial output
   //  Serial.println("Voltage:" + String((float)voltage) + ",Pressure:" + String((float)pressure) + ",RawPressure:" + String((float)rawPressure) + ",OilTemperature:" + String((int)oilTemperature) );
   Serial.println("RPM:" + String((float)rpm) + ",Pressure:" + String((float)pressure) + ",RawPressure:" + String((float)rawPressure) + ",OilTemperature:" + String((int)oilTemperature) );
@@ -213,8 +219,9 @@ void loop() {
   //// display loop fast (debug)
   tft.drawString("     ", 105, 82, 2);
   tft.drawString(String((float)voltage, 3), 105, 82, 2);
-  tft.drawString("     ", 40, 82, 2);
-  tft.drawString(String(predPressure), 37, 82, 2); //display calculated pressure
+  
+  tft.drawString("     ", 57, 67, 4);
+  tft.drawString(String(pressurePercent), 57, 67, 4); //display pressure Percent
   
   // ALARM HANDLING LOGIC WITH BLINKING WARNING ICON (ONLY ICON)
   if (pressure < predPressure * (100 - MIN_PRESSURE_PERCENT) / 100) {
