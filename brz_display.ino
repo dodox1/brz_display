@@ -23,6 +23,10 @@ int rpm = 0;
 static unsigned long last_time = 0;
 int predPressure = 0; //calculated pressure value
 int pressurePercent = 0;
+float filteredPercent = 0;
+
+unsigned long lastAlarmTime = 0;
+const unsigned long alarmTimeout = 2000; // 2 sekundy v ms
     
 //sprite - pressure value display
 const int sx = 70; // center x
@@ -67,6 +71,7 @@ static bool alarmIconVisible = false;
 
 #include "MedianFilterLib2.h"
 MedianFilter2<float> medianFilter2(5);
+MedianFilter2<float> medianPercent(5);
 
 #include <SPI.h>
 
@@ -108,7 +113,7 @@ void setup() {
   tft.setRotation(1);
   tft.setSwapBytes(true);
   tft.fillScreen(TFT_BLACK);
-//  tft.pushImage(26, 14, 268, 132, subaru_logo); //small logo
+  //  tft.pushImage(26, 14, 268, 132, subaru_logo); //small logo
 
 
 
@@ -204,12 +209,13 @@ void loop() {
   //CAN receive END
 
   // oil pressure calculation
-  int predPressure = expectedOilPressure(rpm);
+  predPressure = expectedOilPressure(rpm);
   if (predPressure > 0) {
-    int pressurePercent = (pressure * 100) / predPressure;
+    pressurePercent = (pressure * 100) / predPressure;
   } else {
-    int pressurePercent = 0;
+    pressurePercent = 0;
   }
+  filteredPercent = medianPercent.AddValue(pressurePercent);
   
   //serial output
   //  Serial.println("Voltage:" + String((float)voltage) + ",Pressure:" + String((float)pressure) + ",RawPressure:" + String((float)rawPressure) + ",OilTemperature:" + String((int)oilTemperature) );
@@ -220,24 +226,23 @@ void loop() {
   tft.drawString("     ", 105, 82, 2);
   tft.drawString(String((float)voltage, 3), 105, 82, 2);
   
-  tft.drawString("     ", 57, 67, 4);
-  tft.drawString(String(pressurePercent), 57, 67, 4); //display pressure Percent
-  
   // ALARM HANDLING LOGIC WITH BLINKING WARNING ICON (ONLY ICON)
-  if (pressure < predPressure * (100 - MIN_PRESSURE_PERCENT) / 100) {
-    alarmActive = true;
+  if (pressure < predPressure * (100 - MIN_PRESSURE_PERCENT) / 100 && rpm > 0) {
+    lastAlarmTime = currentMillis;
+  }
+
+  // Show alarm icon as blinking for 2 seconds after last alarm trigger
+  if ((currentMillis - lastAlarmTime) < alarmTimeout) {
     if (currentMillis - alarmLastBlink > ALARM_BLINK_INTERVAL) {
       alarmLastBlink = currentMillis;
       alarmIconVisible = !alarmIconVisible;
-      // Clear previous icon area
-      tft.fillRect(15, 74, 32, 32, TFT_BLACK);
+      tft.fillRect(15, 74, 32, 32, TFT_BLACK); // clear previous icon area
       if (alarmIconVisible) {
         tft.pushImage(15, 74, 32, 32, warning_icon);
       }
     }
   } else {
-    if (alarmActive) {
-      alarmActive = false;
+    if (alarmIconVisible) {
       alarmIconVisible = false;
       tft.fillRect(15, 74, 32, 32, TFT_BLACK);
     }
@@ -247,6 +252,11 @@ void loop() {
   //// display loop slow
   if (currentMillis - previousMillis >= interval) {
     previousMillis = currentMillis;
+
+    tft.drawString("     ", 57, 88, 4);
+//    tft.drawString(String(pressurePercent), 57, 67, 4); //display pressure Percent
+//    tft.drawString(String((int)round(filteredPercent)) + " %", 57, 87, 4);
+    tft.drawString(String((int)round(filteredPercent)), 57, 88, 4);
 
     sprite.fillRoundRect(0, 0, 140, 50, 3, color6); //oil pressure
     sprite.fillRoundRect(145, 0, 80, 50, 3, color6); //oil temp
@@ -288,7 +298,7 @@ void loop() {
     sprite2.drawLine(gx, gy, gx + gw, gy, TFT_WHITE); //bottom line
 
     for (int i = 0; i < 19; i++) {
-      sprite2.drawLine(gx + (i * 8), gy - values[i] - calib, gx + ((i + 1) * 9), gy - values[i + 1] - calib, TFT_RED);
+      sprite2.drawLine(gx + (i * 8), gy - values[i] - calib, gx + ((i + 1) * 8), gy - values[i + 1] - calib, TFT_RED);
       sprite2.drawLine(gx + (i * 8), gy - values[i] - 1 - calib, gx + ((i + 1) * 8), gy - values[i + 1] - 1 - calib, TFT_RED);
     }
 
