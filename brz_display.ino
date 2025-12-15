@@ -26,8 +26,8 @@ int pressurePercent = 0;
 float filteredPercent = 0;
 
 unsigned long lastAlarmTime = 0;
-const unsigned long alarmTimeout = 2000; // 2 sekundy v ms
-    
+const unsigned long alarmTimeout = 2500; // 2 sekundy v ms
+
 //sprite - pressure value display
 const int sx = 70; // center x
 const int sy = 30; // center y
@@ -63,7 +63,7 @@ ADS1115 ADS(0x48, &Wire);
 #define OIL_PRESSURE_VH 4.5
 #define OIL_PRESSURE_PMAX 1034.21359 //150psi in kilopascals
 
-#define MIN_PRESSURE_PERCENT 10  // 10 %
+#define MIN_PRESSURE_PERCENT 30  // 30 %
 #define ALARM_BLINK_INTERVAL 300   // ms, blink interval for alarm icon
 static bool alarmActive = false;
 static unsigned long alarmLastBlink = 0;
@@ -253,7 +253,7 @@ void loop() {
   if (currentMillis - previousMillis >= interval) {
     previousMillis = currentMillis;
 
-    tft.drawString("     ", 57, 88, 4);
+    tft.drawString("      ", 57, 88, 4);
 //    tft.drawString(String(pressurePercent), 57, 67, 4); //display pressure Percent
 //    tft.drawString(String((int)round(filteredPercent)) + " %", 57, 87, 4);
     tft.drawString(String((int)round(filteredPercent)), 57, 88, 4);
