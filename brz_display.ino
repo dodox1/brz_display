@@ -27,7 +27,7 @@ float filteredPercent = 0;
 
 unsigned long lastAlarmTime = 0;
 const unsigned long alarmTimeout = 2500; // 2 sekundy v ms
-
+    
 //sprite - pressure value display
 const int sx = 70; // center x
 const int sy = 30; // center y
@@ -46,6 +46,11 @@ float rawPressure = 0;
 int pressure = 0;
 float voltage = 0;
 const int interval = 500;     // interval for slow loop (milliseconds)
+
+// --- HEATMAP storage ---
+// We'll keep one counter per pixel in the sprite (X=RPM, Y=pressure)
+static uint16_t heatmapBins[gw][gh]; // gw x gh density bins
+static bool heatmapRenderToggle = false; // render only every 2nd slow loop
 
 //ADC
 #define I2C_SDA 16
@@ -97,6 +102,20 @@ TFT_eSprite sprite3 = TFT_eSprite(&tft); //rpm 140x50
 #define LED_OFF LOW
 #define LED_ON HIGH
 
+
+// helper: 'hot' colormap mapping (like MATLAB hot)
+uint16_t heatmapColorFromNormalized(float v) {
+  if (v <= 0.0f) return tft.color565(0,0,0);
+  if (v >= 1.0f) return tft.color565(255,255,255);
+  // 'hot' style: r = clamp(3v), g = clamp(3v-1), b = clamp(3v-2)
+  float r_f = min(1.0f, 3.0f * v);
+  float g_f = min(1.0f, max(0.0f, 3.0f * v - 1.0f));
+  float b_f = min(1.0f, max(0.0f, 3.0f * v - 2.0f));
+  uint8_t r = (uint8_t)(r_f * 255.0f);
+  uint8_t g = (uint8_t)(g_f * 255.0f);
+  uint8_t b = (uint8_t)(b_f * 255.0f);
+  return tft.color565(r, g, b);
+}
 
 // setup =======================================
 void setup() {
@@ -166,7 +185,7 @@ void setup() {
   sprite.setTextDatum(4);
   sprite.setTextColor(TFT_SILVER, color6);
 
-  sprite2.createSprite(165, 85);  //sprite2 graph
+  sprite2.createSprite(gw, gh);  //sprite2 graph (kept same size)
   sprite2.setTextDatum(4);
 
   sprite3.createSprite(140, 50);  //sprite rpm
@@ -175,6 +194,9 @@ void setup() {
 
 //  tft.pushImage(5, 74, 32, 32, warning_icon); //small logo
   digitalWrite(TFT_BL, TFT_BACKLIGHT_ON); // backlight on
+
+  // initialize heatmap bins to zero
+  memset(heatmapBins, 0, sizeof(heatmapBins));
 }
 
 // main loop =======================================
@@ -253,7 +275,7 @@ void loop() {
   if (currentMillis - previousMillis >= interval) {
     previousMillis = currentMillis;
 
-    tft.drawString("      ", 57, 88, 4);
+    tft.drawString("     ", 57, 88, 4);
 //    tft.drawString(String(pressurePercent), 57, 67, 4); //display pressure Percent
 //    tft.drawString(String((int)round(filteredPercent)) + " %", 57, 87, 4);
     tft.drawString(String((int)round(filteredPercent)), 57, 88, 4);
@@ -277,33 +299,64 @@ void loop() {
     sprite3.drawString(String(rpm), sx, sy, 6); //rpm
     sprite3.pushSprite(5, 110); //rpm
 
-    //graph
-    curent = map(int(pressure), 0, 1000, 0, gh);
-    for (int i = 0; i < 20; i++)
-      values2[i] = values[i];
-    for (int i = 19; i > 0; i--)
-      values[i - 1] = values2[i];
-    values[19] = curent;
+    //graph -> REPLACED BY HEATMAP (X=RPM, Y=pressure)
 
-    sprite2.fillSprite(TFT_BLACK);
-    for (int i = 1; i < 10; i++)
-      sprite2.drawLine(gx + (i * gw / 10), gy, gx + (i * gw / 10), gy - gh, color2);
+    // accumulate histogram for current sample (RPM vs pressure)
+    // X axis: rpm 600 .. 7600  -> 0 .. (gw-1)
+    // Y axis: pressure 0 .. OIL_PRESSURE_PMAX -> bottom..top (low pressure at bottom)
+    int x = map(rpm, 600, 7600, 0, gw - 1);
+    x = constrain(x, 0, gw - 1);
+    int y = map((int)pressure, 0, (int)OIL_PRESSURE_PMAX, gh - 1, 0);
+    y = constrain(y, 0, gh - 1);
+    // increment bin with cap
+    if (heatmapBins[x][y] < 65530) heatmapBins[x][y]++;
 
-    for (int i = 1; i < 6; i++) {
-      sprite2.drawLine(gx, gy - (i * 14), gx + gw, gy - (i * 14), color2);
-      if (i == 1 || i == 3 || i == 5)
-        sprite2.drawString(String((i * 7) * 25 - 25), gx - 12, gy - (i * 14));
+    // toggle render every second slow loop
+    heatmapRenderToggle = !heatmapRenderToggle;
+    if (heatmapRenderToggle) {
+      // Render heatmap
+      // find maximum bin count for normalization
+      uint16_t maxCount = 0;
+      for (int xi = 0; xi < gw; xi++) {
+        for (int yi = 0; yi < gh; yi++) {
+          if (heatmapBins[xi][yi] > maxCount) maxCount = heatmapBins[xi][yi];
+        }
+      }
+
+      sprite2.fillSprite(TFT_BLACK);
+
+      // draw heatmap using row buffer + tft.pushImage (faster than drawPixel loops)
+      static uint16_t rowBuf[gw];
+      for (int yi = 0; yi < gh; yi++) {
+        for (int xi = 0; xi < gw; xi++) {
+          uint16_t cnt = heatmapBins[xi][yi];
+          if (cnt == 0) rowBuf[xi] = tft.color565(0,0,0);
+          else {
+            float norm = (float)cnt / (float)maxCount;
+            rowBuf[xi] = heatmapColorFromNormalized(norm);
+          }
+        }
+        // push single row to absolute screen position (150,75 is used in current code)
+        tft.pushImage(150, 75 + yi, gw, 1, rowBuf);
+      }
+
+      // draw grid/labels over the heatmap (absolute coordinates)
+      for (int i = 1; i < 10; i++) {
+        tft.drawLine(150 + (i * gw / 10), 75, 150 + (i * gw / 10), 75 + gh - 1, color2);
+      }
+      for (int i = 1; i < 6; i++) {
+        int y_local = 75 + i * 14;
+        tft.drawLine(150, y_local, 150 + gw - 1, y_local, color2);
+        if (i == 1 || i == 3 || i == 5) {
+          float labelP = (float)(gh - 1 - (i * 14)) / (float)(gh - 1) * OIL_PRESSURE_PMAX;
+          tft.setTextColor(TFT_SILVER, TFT_BLACK);
+          tft.drawString(String((int)labelP), 152, y_local);
+        }
+      }
+
     }
-    sprite2.drawLine(gx, gy, gx, gy - gh, TFT_WHITE); //left white line
-    sprite2.drawLine(gx, gy, gx + gw, gy, TFT_WHITE); //bottom line
 
-    for (int i = 0; i < 19; i++) {
-      sprite2.drawLine(gx + (i * 8), gy - values[i] - calib, gx + ((i + 1) * 8), gy - values[i + 1] - calib, TFT_RED);
-      sprite2.drawLine(gx + (i * 8), gy - values[i] - 1 - calib, gx + ((i + 1) * 8), gy - values[i + 1] - 1 - calib, TFT_RED);
-    }
-
-    sprite2.pushSprite(150, 75); 
-    //graph
+    // --- End heatmap rendering ---
 
   } 
   //display slow loop
