@@ -30,6 +30,7 @@ This project is designed for an ESP32-based system that displays oil pressure, t
     - 75 PSI: 2.5V
     - 150 PSI: 4.5V
 - **Analog-to-Digital Converter (ADC)**: ADS1115
+- **CAN bus transceiver**: SN65HVD230
 - **Display**: TFT screen compatible with `TFT_eSPI` library.
 
 ---
@@ -52,7 +53,7 @@ Ensure these libraries are installed before uploading the code.
 
 | Component           | ESP32 Pin  | Notes                          |
 |---------------------|------------|--------------------------------|
-| CAN Transceiver RX  | GPIO 13    | Connect to CAN transceiver     |
+| CAN Transceiver RX  | GPIO 13    | Connect to CAN transceiver SN65HVD230 |
 | CAN Transceiver TX  | GPIO 15    |                                |
 | ADS1115 SDA         | GPIO 16    | I2C data line                 |
 | ADS1115 SCL         | GPIO 17    | I2C clock line                |
