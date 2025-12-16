@@ -5,7 +5,7 @@
 //     pressure = (voltage - 0.461) / 4 * 1000; //in kPa
 
 
-#define VERSION "1.2"
+#define VERSION "1.3"
 
 #include <Arduino.h>
 #include <ESP32CAN.h>
@@ -33,8 +33,9 @@ const int sx = 70; // center x
 const int sy = 30; // center y
 
 //Sprite 2 data graph
-const int gw = 165; //graph width
-const int gh = 85; //graph heigth
+// reduced size to avoid legend overlap and save RAM
+const int gw = 152; //graph width (was 165)
+const int gh = 76;  //graph heigth (was 85)
 const int gx = 22; //graph x
 const int gy = 84; // graph y
 int values[20] = {0};
@@ -49,6 +50,7 @@ const int interval = 500;     // interval for slow loop (milliseconds)
 
 // --- HEATMAP storage ---
 // We'll keep one counter per pixel in the sprite (X=RPM, Y=pressure)
+// smaller array to avoid overlap with legend and reduce RAM usage
 static uint16_t heatmapBins[gw][gh]; // gw x gh density bins
 static bool heatmapRenderToggle = false; // render only every 2nd slow loop
 
@@ -86,7 +88,7 @@ MedianFilter2<float> medianPercent(5);
 
 TFT_eSPI tft = TFT_eSPI();  // Invoke custom library
 TFT_eSprite sprite = TFT_eSprite(&tft); //pressure display  310x50
-TFT_eSprite sprite2 = TFT_eSprite(&tft); //graph 165x85
+TFT_eSprite sprite2 = TFT_eSprite(&tft); //graph gw x gh
 TFT_eSprite sprite3 = TFT_eSprite(&tft); //rpm 140x50
 
 //tft display
@@ -104,13 +106,18 @@ TFT_eSprite sprite3 = TFT_eSprite(&tft); //rpm 140x50
 
 
 // helper: 'hot' colormap mapping (like MATLAB hot)
+// shifted so lowest non-zero density isn't pure black
 uint16_t heatmapColorFromNormalized(float v) {
-  if (v <= 0.0f) return tft.color565(0,0,0);
+  // shift the colormap upward so the lowest non-zero density isn't black
+  const float vmin = 0.12f; // minimal visual intensity for v>0 (tuneable: 0.0..0.3)
+  if (v <= 0.0f) return tft.color565(6, 6, 6); // very dark gray background instead of pure black
   if (v >= 1.0f) return tft.color565(255,255,255);
-  // 'hot' style: r = clamp(3v), g = clamp(3v-1), b = clamp(3v-2)
-  float r_f = min(1.0f, 3.0f * v);
-  float g_f = min(1.0f, max(0.0f, 3.0f * v - 1.0f));
-  float b_f = min(1.0f, max(0.0f, 3.0f * v - 2.0f));
+  // map v from [0..1] onto [vmin..1]
+  float v2 = v * (1.0f - vmin) + vmin;
+  // 'hot' style on shifted value: r = clamp(3*v2), g = clamp(3*v2-1), b = clamp(3*v2-2)
+  float r_f = min(1.0f, 3.0f * v2);
+  float g_f = min(1.0f, max(0.0f, 3.0f * v2 - 1.0f));
+  float b_f = min(1.0f, max(0.0f, 3.0f * v2 - 2.0f));
   uint8_t r = (uint8_t)(r_f * 255.0f);
   uint8_t g = (uint8_t)(g_f * 255.0f);
   uint8_t b = (uint8_t)(b_f * 255.0f);
@@ -323,14 +330,16 @@ void loop() {
         }
       }
 
-      sprite2.fillSprite(TFT_BLACK);
+      // use a very dark gray background so low-values' colors don't blend into pure black
+      uint16_t heat_bg = tft.color565(6,6,6);
+      sprite2.fillSprite(heat_bg);
 
       // draw heatmap using row buffer + tft.pushImage (faster than drawPixel loops)
       static uint16_t rowBuf[gw];
       for (int yi = 0; yi < gh; yi++) {
         for (int xi = 0; xi < gw; xi++) {
           uint16_t cnt = heatmapBins[xi][yi];
-          if (cnt == 0) rowBuf[xi] = tft.color565(0,0,0);
+          if (cnt == 0) rowBuf[xi] = heat_bg;
           else {
             float norm = (float)cnt / (float)maxCount;
             rowBuf[xi] = heatmapColorFromNormalized(norm);
@@ -340,15 +349,18 @@ void loop() {
         tft.pushImage(150, 75 + yi, gw, 1, rowBuf);
       }
 
-      // draw grid/labels over the heatmap (absolute coordinates)
-      for (int i = 1; i < 10; i++) {
-        tft.drawLine(150 + (i * gw / 10), 75, 150 + (i * gw / 10), 75 + gh - 1, color2);
+      // draw coarser grid/labels over the heatmap (absolute coordinates)
+      // vertical: 4 internal divisions (5 columns including edges)
+      for (int i = 1; i < 5; i++) {
+        tft.drawLine(150 + (i * gw / 5), 75, 150 + (i * gw / 5), 75 + gh - 1, color2);
       }
-      for (int i = 1; i < 6; i++) {
-        int y_local = 75 + i * 14;
+      // horizontal: 3 internal divisions (4 rows including edges)
+      for (int i = 1; i < 4; i++) {
+        int y_local = 75 + (i * gh / 4);
         tft.drawLine(150, y_local, 150 + gw - 1, y_local, color2);
-        if (i == 1 || i == 3 || i == 5) {
-          float labelP = (float)(gh - 1 - (i * 14)) / (float)(gh - 1) * OIL_PRESSURE_PMAX;
+        // put sparse labels (left side), consistent with reduced grid density
+        if (i == 1 || i == 2 || i == 3) {
+          float labelP = (float)(gh - 1 - (i * gh / 4)) / (float)(gh - 1) * OIL_PRESSURE_PMAX;
           tft.setTextColor(TFT_SILVER, TFT_BLACK);
           tft.drawString(String((int)labelP), 152, y_local);
         }
