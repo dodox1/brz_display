@@ -332,7 +332,7 @@ void loop() {
 
       // use a very dark gray background so low-values' colors don't blend into pure black
       uint16_t heat_bg = tft.color565(6,6,6);
-      sprite2.fillSprite(heat_bg);
+      sprite2.fillSprite(TFT_BLACK);
 
       // draw heatmap using row buffer + tft.pushImage (faster than drawPixel loops)
       static uint16_t rowBuf[gw];
@@ -346,18 +346,18 @@ void loop() {
           }
         }
         // push single row to absolute screen position (150,75 is used in current code)
-        tft.pushImage(150, 75 + yi, gw, 1, rowBuf);
+        tft.pushImage(163, 84 + yi, gw, 1, rowBuf);
       }
 
       // draw coarser grid/labels over the heatmap (absolute coordinates)
       // vertical: 4 internal divisions (5 columns including edges)
       for (int i = 1; i < 5; i++) {
-        tft.drawLine(150 + (i * gw / 5), 75, 150 + (i * gw / 5), 75 + gh - 1, color2);
+     //   tft.drawLine(150 + (i * gw / 5), 75, 150 + (i * gw / 5), 75 + gh - 1, color2);
       }
       // horizontal: 3 internal divisions (4 rows including edges)
       for (int i = 1; i < 4; i++) {
         int y_local = 75 + (i * gh / 4);
-        tft.drawLine(150, y_local, 150 + gw - 1, y_local, color2);
+      //  tft.drawLine(150, y_local, 150 + gw - 1, y_local, color2);
         // put sparse labels (left side), consistent with reduced grid density
         if (i == 1 || i == 2 || i == 3) {
           float labelP = (float)(gh - 1 - (i * gh / 4)) / (float)(gh - 1) * OIL_PRESSURE_PMAX;
